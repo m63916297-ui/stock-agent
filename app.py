@@ -2,23 +2,23 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import numpy as np
-from sklearn.linear_model import LinearRegression
 import config
 from datetime import datetime
 
-st.set_page_config(page_title="Agente Trading NYSE", page_icon="📈", layout="wide")
+st.set_page_config(
+    page_title="Agente Trading NYSE",
+    page_icon="📈",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
 
-if "resultados_tech" not in st.session_state:
-    st.session_state.resultados_tech = None
-if "resultados_btc" not in st.session_state:
-    st.session_state.resultados_btc = None
-if "tickers" not in st.session_state:
-    st.session_state.tickers = config.CONFIG["tickers"]
-if "bitcoin_miners" not in st.session_state:
-    st.session_state.bitcoin_miners = config.CONFIG["bitcoin_miners"]
+# ============================================
+# FUNCIONES DE ANALISIS TECNICO
+# ============================================
 
 
 def calculate_rsi(prices, period=14):
+    """Calcula el Indice de Fuerza Relativa"""
     delta = prices.diff()
     gain = delta.where(delta > 0, 0)
     loss = -delta.where(delta < 0, 0)
@@ -30,14 +30,17 @@ def calculate_rsi(prices, period=14):
 
 
 def calculate_sma(prices, period):
+    """Calcula Media Movil Simple"""
     return prices.rolling(window=period).mean()
 
 
 def calculate_ema(prices, period):
+    """Calcula Media Movil Exponencial"""
     return prices.ewm(span=period, adjust=False).mean()
 
 
 def calculate_macd(prices, fast=12, slow=26, signal=9):
+    """Calcula MACD"""
     ema_fast = calculate_ema(prices, fast)
     ema_slow = calculate_ema(prices, slow)
     macd = ema_fast - ema_slow
@@ -46,16 +49,18 @@ def calculate_macd(prices, fast=12, slow=26, signal=9):
 
 
 def get_stock_data(ticker, period="6mo", interval="1d"):
+    """Descarga datos de Yahoo Finance"""
     try:
         data = yf.download(ticker, period=period, interval=interval, progress=False)
         if isinstance(data.columns, pd.MultiIndex):
             data = data.xs(ticker, level=1, axis=1)
         return data
-    except:
+    except Exception:
         return pd.DataFrame()
 
 
 def analyze_single_stock(ticker, cfg):
+    """Analiza un solo activo"""
     data = get_stock_data(ticker, cfg["period"], cfg["interval"])
     if len(data) == 0:
         return None
@@ -91,9 +96,11 @@ def analyze_single_stock(ticker, cfg):
 
 
 def calculate_score(result):
+    """Calcula score y recomendacion"""
     score = 0
     signals = []
 
+    # RSI
     if result["rsi"] < 30:
         score += 2
         signals.append("RSI sobrevendido")
@@ -101,6 +108,7 @@ def calculate_score(result):
         score -= 2
         signals.append("RSI sobrecomprado")
 
+    # Tendencia SMA
     if result["precio"] > result["sma_short"] > result["sma_long"]:
         score += 2
         signals.append("Tendencia alcista")
@@ -108,6 +116,7 @@ def calculate_score(result):
         score -= 2
         signals.append("Tendencia bajista")
 
+    # MACD
     if result["macd"] > result["signal"]:
         score += 1
         signals.append("MACD alcista")
@@ -121,6 +130,7 @@ def calculate_score(result):
 
 
 def analyze_market(tickers, cfg):
+    """Analiza todos los tickers de una lista"""
     resultados = []
     for ticker in tickers:
         result = analyze_single_stock(ticker, cfg)
@@ -129,6 +139,9 @@ def analyze_market(tickers, cfg):
             resultados.append(
                 {
                     "Ticker": result["ticker"],
+                    "Nombre": config.TICKER_NAMES.get(
+                        result["ticker"], result["ticker"]
+                    ),
                     "Precio": result["precio"],
                     "RSI": result["rsi"],
                     "MACD": result["macd"],
@@ -146,38 +159,44 @@ def analyze_market(tickers, cfg):
     return resultados
 
 
-def render_stock_analysis(
-    resultados, rec_filter, selected_ticker, period, show_title="Análisis de"
-):
-    if rec_filter != "Todos":
-        resultados = [r for r in resultados if r["Recomendacion"] == rec_filter]
+# ============================================
+# COMPONENTES DE LA INTERFAZ
+# ============================================
 
+
+def render_metrics(resultados):
+    """Muestra metricas de resumen"""
     col1, col2, col3 = st.columns(3)
 
     with col1:
         comprar = len([r for r in resultados if r["Recomendacion"] == "COMPRAR"])
-        st.metric("COMPRAR", comprar, delta="Oportunidades", delta_color="normal")
+        st.metric("COMPRAR", comprar, delta="Comprar", delta_color="normal")
 
     with col2:
         mantener = len([r for r in resultados if r["Recomendacion"] == "MANTENER"])
-        st.metric("MANTENER", mantener, delta="Neutral", delta_color="off")
+        st.metric("MANTENER", mantener, delta="Mantener", delta_color="off")
 
     with col3:
         vender = len([r for r in resultados if r["Recomendacion"] == "VENDER"])
-        st.metric("VENDER", vender, delta="Riesgo", delta_color="inverse")
+        st.metric("VENDER", vender, delta="Vender", delta_color="inverse")
 
-    st.subheader("📊 Ranking de Acciones")
+
+def render_ranking(resultados, rec_filter):
+    """Muestra tabla de ranking"""
+    if rec_filter != "Todos":
+        resultados = [r for r in resultados if r["Recomendacion"] == rec_filter]
 
     df_display = pd.DataFrame(
         [
             {
                 "Ticker": r["Ticker"],
+                "Nombre": r["Nombre"],
                 "Precio": f"${r['Precio']:.2f}",
                 "RSI": f"{r['RSI']:.1f}",
                 "MACD": f"{r['MACD']:.2f}",
                 "Score": r["Score"],
                 "Recomendacion": r["Recomendacion"],
-                "Señales": r["Senales"],
+                "Senales": r["Senales"],
             }
             for r in resultados
         ]
@@ -192,47 +211,51 @@ def render_stock_analysis(
             "Score": st.column_config.ProgressColumn(
                 "Score", min_value=-5, max_value=5
             ),
-            "Recomendacion": st.column_config.TextColumn("Recomendación"),
         },
         hide_index=True,
         use_container_width=True,
+        height=300,
     )
 
-    st.subheader(f"{show_title} {selected_ticker}")
 
-    ticker_result = analyze_single_stock(
-        selected_ticker, {**config.CONFIG, "period": period}
+def render_chart(ticker_result, period):
+    """Grafica analisis tecnico"""
+    if ticker_result is None or ticker_result["data"] is None:
+        st.warning("No hay datos disponibles")
+        return
+
+    data = ticker_result["data"]
+
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Precio", f"${ticker_result['precio']:.2f}")
+    col2.metric("RSI", f"{ticker_result['rsi']:.1f}")
+    col3.metric("MACD", f"{ticker_result['macd']:.2f}")
+    col4.metric("Signal", f"{ticker_result['signal']:.2f}")
+
+    close_prices = (
+        data["Close"].squeeze()
+        if isinstance(data["Close"], pd.DataFrame)
+        else data["Close"]
     )
 
-    if ticker_result and ticker_result["data"] is not None:
-        data = ticker_result["data"]
+    st.subheader("Precio con Medias Moviles")
+    chart_data = pd.DataFrame(
+        {
+            "Precio": close_prices,
+            "SMA20": calculate_sma(close_prices, 20),
+            "SMA50": calculate_sma(close_prices, 50),
+        }
+    )
+    st.line_chart(chart_data, height=300)
 
-        col1, col2, col3, col4 = st.columns(4)
-        col1.metric("Precio", f"${ticker_result['precio']:.2f}")
-        col2.metric("RSI", f"{ticker_result['rsi']:.1f}")
-        col3.metric("MACD", f"{ticker_result['macd']:.2f}")
-        col4.metric("Signal", f"{ticker_result['signal']:.2f}")
+    col1, col2 = st.columns(2)
 
-        st.subheader("Precio con Medias Móviles")
-
-        close_prices = (
-            data["Close"].squeeze()
-            if isinstance(data["Close"], pd.DataFrame)
-            else data["Close"]
-        )
-        chart_data = pd.DataFrame(
-            {
-                "Precio": close_prices,
-                "SMA20": calculate_sma(close_prices, 20),
-                "SMA50": calculate_sma(close_prices, 50),
-            }
-        )
-        st.line_chart(chart_data, height=300)
-
+    with col1:
         st.subheader("RSI")
         rsi_data = calculate_rsi(close_prices)
         st.line_chart(rsi_data, height=200)
 
+    with col2:
         st.subheader("MACD")
         macd, signal = calculate_macd(close_prices)
         macd_data = pd.DataFrame(
@@ -240,101 +263,147 @@ def render_stock_analysis(
         )
         st.bar_chart(macd_data["Histograma"], height=200)
 
-        score, signals, rec = calculate_score(ticker_result)
 
-        st.subheader("🎯 Recomendación")
+def render_recommendation(ticker_result):
+    """Muestra recomendacion final"""
+    score, signals, rec = calculate_score(ticker_result)
 
-        if rec == "COMPRAR":
-            st.success(f"**{rec}** (Score: {score})")
-        elif rec == "VENDER":
-            st.error(f"**{rec}** (Score: {score})")
-        else:
-            st.warning(f"**{rec}** (Score: {score})")
+    st.subheader("Recomendacion")
 
-        st.write("**Señales detectadas:**")
-        for s in signals:
-            st.write(f"- {s}")
+    if rec == "COMPRAR":
+        st.success(f"**{rec}** (Score: {score})")
+    elif rec == "VENDER":
+        st.error(f"**{rec}** (Score: {score})")
     else:
-        st.error("No se pudieron obtener datos para este ticker")
+        st.warning(f"**{rec}** (Score: {score})")
+
+    st.write("**Senales detectadas:**")
+    for s in signals:
+        st.write(f"- {s}")
+
+
+def render_market_tab(
+    tab_name, tickers, session_key, rec_key, ticker_key, period_key, info_text
+):
+    """Renderiza una pestaña de mercado"""
+
+    col1, col2 = st.columns([3, 1])
+
+    with col1:
+        rec_filter = st.selectbox(
+            f"Filtrar por {rec_key}",
+            ["Todos", "COMPRAR", "MANTENER", "VENDER"],
+            key=f"rec_{session_key}",
+        )
+
+    with col2:
+        period = st.selectbox(
+            "Periodo", ["1mo", "3mo", "6mo", "1y"], index=2, key=f"period_{session_key}"
+        )
+
+    st.markdown("---")
+
+    if st.session_state.get(f"resultados_{session_key}") is None:
+        with st.spinner(f"Analizando {tab_name}..."):
+            st.session_state[f"resultados_{session_key}"] = analyze_market(
+                tickers, config.CONFIG
+            )
+
+    resultados = st.session_state[f"resultados_{session_key}"]
+
+    render_metrics(resultados)
+
+    st.subheader(f"Ranking {tab_name}")
+    render_ranking(resultados, rec_filter)
+
+    st.markdown("---")
+
+    selected_ticker = st.selectbox(
+        f"Seleccionar {ticker_key}", tickers, key=f"ticker_{session_key}"
+    )
+
+    ticker_result = analyze_single_stock(
+        selected_ticker, {**config.CONFIG, "period": period}
+    )
+
+    render_chart(ticker_result, period)
+    render_recommendation(ticker_result)
+
+
+# ============================================
+# APLICACION PRINCIPAL
+# ============================================
 
 
 def main():
-    st.title("📈 Agente Autónomo de Trading NYSE")
-    st.markdown("Análisis técnico automático de acciones de la NYSE y Bitcoin Miners")
+    st.title("📈 Agente Trading NYSE")
+    st.markdown("Analisis tecnico automatico de acciones, ETFs y commodities")
 
+    # Sidebar
     with st.sidebar:
-        st.header("⚙️ Configuración")
+        st.header("Configuracion")
 
         analyze_btn = st.button(
-            "🔄 Analizar Mercado", type="primary", use_container_width=True
+            "Actualizar Analisis", type="primary", use_container_width=True
         )
 
-        st.markdown("---")
-        st.caption("Actualizado: " + datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+        if analyze_btn:
+            st.session_state.resultados_tech = None
+            st.session_state.resultados_btc = None
+            st.session_state.resultados_etf = None
+            st.session_state.resultados_metals = None
+            st.rerun()
 
-    tab1, tab2 = st.tabs(["💻 Tech Stocks", "₿ Bitcoin Miners"])
+        st.markdown("---")
+        st.caption(f"Actualizado: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+
+    # Pestanas
+    tab1, tab2, tab3, tab4 = st.tabs(
+        ["💻 Tech Stocks", "₿ Bitcoin Miners", "📊 ETFs", "🥇 Commodities"]
+    )
 
     with tab1:
-        with st.sidebar:
-            st.subheader("💻 Tech Stocks")
-            rec_filter_tech = st.selectbox(
-                "Filtrar por recomendación",
-                ["Todos", "COMPRAR", "MANTENER", "VENDER"],
-                key="rec_tech",
-            )
-            selected_ticker_tech = st.selectbox(
-                "Seleccionar acción", st.session_state.tickers, key="ticker_tech"
-            )
-
-        if analyze_btn or st.session_state.resultados_tech is None:
-            with st.spinner("Analizando Tech Stocks..."):
-                st.session_state.resultados_tech = analyze_market(
-                    st.session_state.tickers, config.CONFIG
-                )
-
-        render_stock_analysis(
-            st.session_state.resultados_tech,
-            rec_filter_tech,
-            selected_ticker_tech,
-            "6mo",
-            "Análisis de",
+        render_market_tab(
+            "Tech Stocks",
+            config.CONFIG["tickers"],
+            "tech",
+            "rec",
+            "accion",
+            "period",
+            "Empresas tecnologicas y blue chips",
         )
 
     with tab2:
-        with st.sidebar:
-            st.subheader("₿ Bitcoin Miners")
-            rec_filter_btc = st.selectbox(
-                "Filtrar por recomendación",
-                ["Todos", "COMPRAR", "MANTENER", "VENDER"],
-                key="rec_btc",
-            )
-            selected_ticker_btc = st.selectbox(
-                "Seleccionar acción", st.session_state.bitcoin_miners, key="ticker_btc"
-            )
-            period_btc = st.selectbox(
-                "Período de datos",
-                ["1mo", "3mo", "6mo", "1y"],
-                index=2,
-                key="period_btc",
-            )
+        render_market_tab(
+            "Bitcoin Miners",
+            config.CONFIG["bitcoin_miners"],
+            "btc",
+            "rec",
+            "accion",
+            "period",
+            "Empresas de mineria de Bitcoin",
+        )
 
-            st.markdown("---")
-            st.info(
-                "💡 Las empresas mineras de Bitcoin están influenciadas por el precio de BTC y la dificultad de minado."
-            )
+    with tab3:
+        render_market_tab(
+            "ETFs",
+            config.CONFIG["etfs"],
+            "etf",
+            "rec",
+            "ETF",
+            "period",
+            "Fondos cotizados",
+        )
 
-        if analyze_btn or st.session_state.resultados_btc is None:
-            with st.spinner("Analizando Bitcoin Miners..."):
-                st.session_state.resultados_btc = analyze_market(
-                    st.session_state.bitcoin_miners, config.CONFIG
-                )
-
-        render_stock_analysis(
-            st.session_state.resultados_btc,
-            rec_filter_btc,
-            selected_ticker_btc,
-            period_btc,
-            "Análisis de",
+    with tab4:
+        render_market_tab(
+            "Commodities",
+            config.CONFIG["metals"],
+            "metals",
+            "rec",
+            "commodity",
+            "period",
+            "Metales, energeticos y agricoles",
         )
 
 

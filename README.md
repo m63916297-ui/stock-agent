@@ -1,19 +1,18 @@
-# Agente Autónomo de Trading - NYSE
+# Agente Autonomous de Trading NYSE
 
-Agente IA que analiza automáticamente acciones de la NYSE y genera recomendaciones de compra/venta basadas en análisis técnico.
+Analisis tecnico automatico de acciones, ETFs, Bitcoin Miners y Commodities.
 
-## Características
+## Caracteristicas
 
-- **Análisis Técnico**: RSI, MACD, SMA, EMA
-- **Predicción de Tendencia**: Regresión lineal
-- **Dos Mercados**: Tech Stocks y Bitcoin Miners
-- **Recomendaciones**: COMPRAR / MANTENER / VENDER
-- **Ranking automático**: Ordena mejores oportunidades
-- **Interfaz Streamlit**: Visualización interactiva
+- Analisis tecnico: RSI, MACD, SMA, EMA
+- 4 Mercados: Tech Stocks, Bitcoin Miners, ETFs, Commodities
+- Recomendaciones: COMPRAR / MANTENER / VENDER
+- Interfaz interactiva Streamlit
 
-## Instalación
+## Instalacion
 
 ```bash
+cd genai
 python -m venv venv
 venv\Scripts\activate.bat
 pip install -r requirements.txt
@@ -21,8 +20,14 @@ pip install -r requirements.txt
 
 ## Uso
 
+### Interfaz Grafica (Streamlit)
 ```bash
 streamlit run app.py
+```
+
+### Linea de Comandos
+```bash
+python stock_agent.py
 ```
 
 ## Estructura
@@ -31,34 +36,35 @@ streamlit run app.py
 genai/
 ├── app.py              # Interfaz Streamlit
 ├── stock_agent.py      # Agente CLI
-├── analisis.py         # Módulo de análisis técnico
-├── config.py          # Configuración
-├── requirements.txt   # Dependencias
-└── README.md          # Este archivo
+├── config.py           # Configuracion y tickers
+├── analisis.py         # Modulo analisis (respaldo)
+├── requirements.txt    # Dependencias
+└── README.md          # Documentacion
 ```
 
 ## Mercados
 
-### 💻 Tech Stocks (28 empresas)
-AAPL, MSFT, GOOGL, AMZN, NVDA, META, TSLA, JPM, JNJ, V, PG, UNH, HD, MA, DIS, PYPL, NFLX, ADBE, CRM, INTC, VZ, T, PFE, MRK, KO, PEP, WMT, BRK-B
-
-### ₿ Bitcoin Miners (15 empresas)
-MARA, RIOT, CLSK, BTDR, HIVE, BITF, DMGI, SFIL, WULF, BBOX, ARBK, LFG, CGX, BRCC, BITN
+| Modulo | Activos | Descripcion |
+|--------|---------|-------------|
+| Tech Stocks | 28 | Empresas tecnologicas y blue chips |
+| Bitcoin Miners | 15 | Empresas de mineria de Bitcoin |
+| ETFs | 23 | Fondos cotizados (S&P500, sectoriales) |
+| Commodities | 29 | Metales, energeticos, agricoles |
 
 ## Indicadores
 
-| Indicador | Descripción |
+| Indicador | Descripcion |
 |-----------|-------------|
-| RSI | Índice de Fuerza Relativa (<30 sobrevendido, >70 sobrecomprado) |
-| MACD | Convergencia/Divergencia de Medias Móviles |
-| SMA | Media Móvil Simple |
-| EMA | Media Móvil Exponencial |
+| RSI | Indice de Fuerza Relativa (<30 sobrevendido, >70 sobrecomprado) |
+| MACD | Convergencia/Divergencia de Medias Mobiles |
+| SMA | Media Movil Simple |
+| EMA | Media Movil Exponencial |
 
 ## Recomendaciones
 
-- **COMPRAR**: Score >= 3
-- **VENDER**: Score <= -2
-- **MANTENER**: Resto
+- **COMPRAR**: Score >= 3 (indicadores alcistas)
+- **VENDER**: Score <= -2 (indicadores bajistas)
+- **MANTENER**: Resto de casos
 
 ## Disclaimer
 
