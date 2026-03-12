@@ -4,15 +4,18 @@ import pandas as pd
 import numpy as np
 from sklearn.linear_model import LinearRegression
 import config
-import analisis
 from datetime import datetime
 
 st.set_page_config(page_title="Agente Trading NYSE", page_icon="📈", layout="wide")
 
-if "resultados" not in st.session_state:
-    st.session_state.resultados = None
+if "resultados_tech" not in st.session_state:
+    st.session_state.resultados_tech = None
+if "resultados_btc" not in st.session_state:
+    st.session_state.resultados_btc = None
 if "tickers" not in st.session_state:
     st.session_state.tickers = config.CONFIG["tickers"]
+if "bitcoin_miners" not in st.session_state:
+    st.session_state.bitcoin_miners = config.CONFIG["bitcoin_miners"]
 
 
 def calculate_rsi(prices, period=14):
@@ -58,7 +61,6 @@ def analyze_single_stock(ticker, cfg):
         return None
 
     close = data["Close"]
-    volume = data["Volume"]
 
     rsi = calculate_rsi(close)
     sma_short = calculate_sma(close, cfg["sma_short"])
@@ -88,110 +90,80 @@ def analyze_single_stock(ticker, cfg):
     }
 
 
-def main():
-    st.title("📈 Agente Autónomo de Trading NYSE")
-    st.markdown("Análisis técnico automático de acciones de la NYSE")
+def calculate_score(result):
+    score = 0
+    signals = []
 
-    with st.sidebar:
-        st.header("Configuración")
+    if result["rsi"] < 30:
+        score += 2
+        signals.append("RSI sobrevendido")
+    elif result["rsi"] > 70:
+        score -= 2
+        signals.append("RSI sobrecomprado")
 
-        st.subheader("Análisis")
-        analyze_btn = st.button(
-            "🔄 Analizar Mercado", type="primary", use_container_width=True
-        )
+    if result["precio"] > result["sma_short"] > result["sma_long"]:
+        score += 2
+        signals.append("Tendencia alcista")
+    elif result["precio"] < result["sma_short"] < result["sma_long"]:
+        score -= 2
+        signals.append("Tendencia bajista")
 
-        st.subheader("Filtros")
-        rec_filter = st.selectbox(
-            "Filtrar por recomendación", ["Todos", "COMPRAR", "MANTENER", "VENDER"]
-        )
+    if result["macd"] > result["signal"]:
+        score += 1
+        signals.append("MACD alcista")
+    else:
+        score -= 1
+        signals.append("MACD bajista")
 
-        st.subheader("Ticker Individual")
-        selected_ticker = st.selectbox("Seleccionar acción", st.session_state.tickers)
+    rec = "COMPRAR" if score >= 3 else ("VENDER" if score <= -2 else "MANTENER")
 
-        st.subheader("Período")
-        period = st.selectbox("Período de datos", ["1mo", "3mo", "6mo", "1y"], index=2)
+    return score, signals, rec
 
-        st.markdown("---")
-        st.caption("Actualizado: " + datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
 
-    if analyze_btn or st.session_state.resultados is None:
-        with st.spinner("Analizando mercado..."):
-            resultados = []
-            for ticker in st.session_state.tickers:
-                result = analyze_single_stock(ticker, config.CONFIG)
-                if result:
-                    score = 0
-                    signals = []
+def analyze_market(tickers, cfg):
+    resultados = []
+    for ticker in tickers:
+        result = analyze_single_stock(ticker, cfg)
+        if result:
+            score, signals, rec = calculate_score(result)
+            resultados.append(
+                {
+                    "Ticker": result["ticker"],
+                    "Precio": result["precio"],
+                    "RSI": result["rsi"],
+                    "MACD": result["macd"],
+                    "Signal": result["signal"],
+                    "SMA20": result["sma_short"],
+                    "SMA50": result["sma_long"],
+                    "Score": score,
+                    "Recomendacion": rec,
+                    "Senales": ", ".join(signals) if signals else "Neutral",
+                    "data": result["data"],
+                }
+            )
 
-                    if result["rsi"] < 30:
-                        score += 2
-                        signals.append("RSI sobrevendido")
-                    elif result["rsi"] > 70:
-                        score -= 2
-                        signals.append("RSI sobrecomprado")
+    resultados.sort(key=lambda x: x["Score"], reverse=True)
+    return resultados
 
-                    if result["precio"] > result["sma_short"] > result["sma_long"]:
-                        score += 2
-                        signals.append("Tendencia alcista")
-                    elif result["precio"] < result["sma_short"] < result["sma_long"]:
-                        score -= 2
-                        signals.append("Tendencia bajista")
 
-                    if result["macd"] > result["signal"]:
-                        score += 1
-                        signals.append("MACD alcista")
-                    else:
-                        score -= 1
-                        signals.append("MACD bajista")
-
-                    rec = (
-                        "COMPRAR"
-                        if score >= 3
-                        else ("VENDER" if score <= -2 else "MANTENER")
-                    )
-
-                    resultados.append(
-                        {
-                            "Ticker": result["ticker"],
-                            "Precio": result["precio"],
-                            "RSI": result["rsi"],
-                            "MACD": result["macd"],
-                            "Signal": result["signal"],
-                            "SMA20": result["sma_short"],
-                            "SMA50": result["sma_long"],
-                            "Score": score,
-                            "Recomendacion": rec,
-                            "Senales": ", ".join(signals) if signals else "Neutral",
-                            "data": result["data"],
-                        }
-                    )
-
-            resultados.sort(key=lambda x: x["Score"], reverse=True)
-            st.session_state.resultados = resultados
-
-    resultados = st.session_state.resultados
-
+def render_stock_analysis(
+    resultados, rec_filter, selected_ticker, period, show_title="Análisis de"
+):
     if rec_filter != "Todos":
         resultados = [r for r in resultados if r["Recomendacion"] == rec_filter]
 
     col1, col2, col3 = st.columns(3)
 
     with col1:
-        comprar = len(
-            [r for r in st.session_state.resultados if r["Recomendacion"] == "COMPRAR"]
-        )
+        comprar = len([r for r in resultados if r["Recomendacion"] == "COMPRAR"])
         st.metric("COMPRAR", comprar, delta="Oportunidades", delta_color="normal")
 
     with col2:
-        mantener = len(
-            [r for r in st.session_state.resultados if r["Recomendacion"] == "MANTENER"]
-        )
+        mantener = len([r for r in resultados if r["Recomendacion"] == "MANTENER"])
         st.metric("MANTENER", mantener, delta="Neutral", delta_color="off")
 
     with col3:
-        vender = len(
-            [r for r in st.session_state.resultados if r["Recomendacion"] == "VENDER"]
-        )
+        vender = len([r for r in resultados if r["Recomendacion"] == "VENDER"])
         st.metric("VENDER", vender, delta="Riesgo", delta_color="inverse")
 
     st.subheader("📊 Ranking de Acciones")
@@ -220,15 +192,13 @@ def main():
             "Score": st.column_config.ProgressColumn(
                 "Score", min_value=-5, max_value=5
             ),
-            "Recomendacion": st.column_config.TextColumn(
-                "Recomendación", help="Recomendación del agente"
-            ),
+            "Recomendacion": st.column_config.TextColumn("Recomendación"),
         },
         hide_index=True,
         use_container_width=True,
     )
 
-    st.subheader(f"📈 Análisis de {selected_ticker}")
+    st.subheader(f"{show_title} {selected_ticker}")
 
     ticker_result = analyze_single_stock(
         selected_ticker, {**config.CONFIG, "period": period}
@@ -245,79 +215,32 @@ def main():
 
         st.subheader("Precio con Medias Móviles")
 
+        close_prices = (
+            data["Close"].squeeze()
+            if isinstance(data["Close"], pd.DataFrame)
+            else data["Close"]
+        )
         chart_data = pd.DataFrame(
             {
-                "Precio": data["Close"].squeeze()
-                if isinstance(data["Close"], pd.DataFrame)
-                else data["Close"],
-                "SMA20": calculate_sma(
-                    data["Close"].squeeze()
-                    if isinstance(data["Close"], pd.DataFrame)
-                    else data["Close"],
-                    20,
-                ),
-                "SMA50": calculate_sma(
-                    data["Close"].squeeze()
-                    if isinstance(data["Close"], pd.DataFrame)
-                    else data["Close"],
-                    50,
-                ),
+                "Precio": close_prices,
+                "SMA20": calculate_sma(close_prices, 20),
+                "SMA50": calculate_sma(close_prices, 50),
             }
         )
         st.line_chart(chart_data, height=300)
 
         st.subheader("RSI")
-        rsi_data = calculate_rsi(
-            data["Close"].squeeze()
-            if isinstance(data["Close"], pd.DataFrame)
-            else data["Close"]
-        )
+        rsi_data = calculate_rsi(close_prices)
         st.line_chart(rsi_data, height=200)
 
         st.subheader("MACD")
-        macd, signal = calculate_macd(
-            data["Close"].squeeze()
-            if isinstance(data["Close"], pd.DataFrame)
-            else data["Close"]
-        )
+        macd, signal = calculate_macd(close_prices)
         macd_data = pd.DataFrame(
             {"MACD": macd, "Signal": signal, "Histograma": macd - signal}
         )
         st.bar_chart(macd_data["Histograma"], height=200)
 
-        score = 0
-        signals = []
-
-        if ticker_result["rsi"] < 30:
-            score += 2
-            signals.append("RSI sobrevendido - POSIBLE COMPRA")
-        elif ticker_result["rsi"] > 70:
-            score -= 2
-            signals.append("RSI sobrecomprado - POSIBLE VENTA")
-
-        if (
-            ticker_result["precio"]
-            > ticker_result["sma_short"]
-            > ticker_result["sma_long"]
-        ):
-            score += 2
-            signals.append("Precio arriba de SMA20 y SMA50 - TENDENCIA ALCISTA")
-        elif (
-            ticker_result["precio"]
-            < ticker_result["sma_short"]
-            < ticker_result["sma_long"]
-        ):
-            score -= 2
-            signals.append("Precio abajo de SMA20 y SMA50 - TENDENCIA BAJISTA")
-
-        if ticker_result["macd"] > ticker_result["signal"]:
-            score += 1
-            signals.append("MACD cruza arriba de Signal - ALCISTA")
-        else:
-            score -= 1
-            signals.append("MACD cruza abajo de Signal - BAJISTA")
-
-        rec = "COMPRAR" if score >= 3 else ("VENDER" if score <= -2 else "MANTENER")
+        score, signals, rec = calculate_score(ticker_result)
 
         st.subheader("🎯 Recomendación")
 
@@ -333,6 +256,86 @@ def main():
             st.write(f"- {s}")
     else:
         st.error("No se pudieron obtener datos para este ticker")
+
+
+def main():
+    st.title("📈 Agente Autónomo de Trading NYSE")
+    st.markdown("Análisis técnico automático de acciones de la NYSE y Bitcoin Miners")
+
+    with st.sidebar:
+        st.header("⚙️ Configuración")
+
+        analyze_btn = st.button(
+            "🔄 Analizar Mercado", type="primary", use_container_width=True
+        )
+
+        st.markdown("---")
+        st.caption("Actualizado: " + datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+
+    tab1, tab2 = st.tabs(["💻 Tech Stocks", "₿ Bitcoin Miners"])
+
+    with tab1:
+        with st.sidebar:
+            st.subheader("💻 Tech Stocks")
+            rec_filter_tech = st.selectbox(
+                "Filtrar por recomendación",
+                ["Todos", "COMPRAR", "MANTENER", "VENDER"],
+                key="rec_tech",
+            )
+            selected_ticker_tech = st.selectbox(
+                "Seleccionar acción", st.session_state.tickers, key="ticker_tech"
+            )
+
+        if analyze_btn or st.session_state.resultados_tech is None:
+            with st.spinner("Analizando Tech Stocks..."):
+                st.session_state.resultados_tech = analyze_market(
+                    st.session_state.tickers, config.CONFIG
+                )
+
+        render_stock_analysis(
+            st.session_state.resultados_tech,
+            rec_filter_tech,
+            selected_ticker_tech,
+            "6mo",
+            "Análisis de",
+        )
+
+    with tab2:
+        with st.sidebar:
+            st.subheader("₿ Bitcoin Miners")
+            rec_filter_btc = st.selectbox(
+                "Filtrar por recomendación",
+                ["Todos", "COMPRAR", "MANTENER", "VENDER"],
+                key="rec_btc",
+            )
+            selected_ticker_btc = st.selectbox(
+                "Seleccionar acción", st.session_state.bitcoin_miners, key="ticker_btc"
+            )
+            period_btc = st.selectbox(
+                "Período de datos",
+                ["1mo", "3mo", "6mo", "1y"],
+                index=2,
+                key="period_btc",
+            )
+
+            st.markdown("---")
+            st.info(
+                "💡 Las empresas mineras de Bitcoin están influenciadas por el precio de BTC y la dificultad de minado."
+            )
+
+        if analyze_btn or st.session_state.resultados_btc is None:
+            with st.spinner("Analizando Bitcoin Miners..."):
+                st.session_state.resultados_btc = analyze_market(
+                    st.session_state.bitcoin_miners, config.CONFIG
+                )
+
+        render_stock_analysis(
+            st.session_state.resultados_btc,
+            rec_filter_btc,
+            selected_ticker_btc,
+            period_btc,
+            "Análisis de",
+        )
 
 
 if __name__ == "__main__":
